@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"log"
+	"math"
 	"math/big"
 	"math/rand/v2"
 	"os"
@@ -77,10 +78,15 @@ func (n *ExtendedNode) get_topology() map[string][]string {
 	})
 
 	for i := 0; i < numNodes; i++ {
-		a := nodeIDs[i]
-		b := nodeIDs[rand.IntN(i)]
-		topology[a] = append(topology[a], b)
-		topology[b] = append(topology[b], a)
+		// Assuming rand.IntN -> returns something greater > 0
+		randomNum := float64(rand.IntN(numNodes - 1))
+		thisLength := int(math.Floor(math.Max(randomNum, 2)))
+		for j := 0; j < thisLength; j++ {
+			a := nodeIDs[j]
+			b := nodeIDs[rand.IntN(j+1)]
+			topology[a] = append(topology[a], b)
+			topology[b] = append(topology[b], a)
+		}
 	}
 
 	return topology
