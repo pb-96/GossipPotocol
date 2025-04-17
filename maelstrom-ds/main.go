@@ -15,15 +15,13 @@ import (
 type ExtendedNode struct {
 	*maelstrom.Node                          // Embed the Maelstrom node
 	messages        map[interface{}]struct{} // Your local storage
-	seen_messages   map[interface{}]string   // Track which node sent us each message
 	// Add any other fields you need
 }
 
 func NewExtendedNode() *ExtendedNode {
 	return &ExtendedNode{
-		Node:          maelstrom.NewNode(),
-		messages:      make(map[interface{}]struct{}, 0), // Initialize your storage
-		seen_messages: make(map[interface{}]string, 0),   // Initialize seen messages tracking
+		Node:     maelstrom.NewNode(),
+		messages: make(map[interface{}]struct{}, 0), // Initialize your storage
 	}
 }
 
@@ -40,7 +38,7 @@ func gen_uuid() string {
 	return timeStr + ":" + uuidStr
 }
 
-func flatten_topology(topology []string, given_node string) map[string][]string {
+func filter_self(topology []string, given_node string) map[string][]string {
 
 	seen := make(map[string][]string)
 	other_nodes := make([]string, 0)
@@ -134,7 +132,7 @@ func main() {
 		n.messages[message] = struct{}{}
 
 		// Get our topology
-		topology := flatten_topology(n.NodeIDs(), n.ID())
+		topology := filter_self(n.NodeIDs(), n.ID())
 
 		// Send to neighbors according to topology
 		if neighbors, ok := topology[n.ID()]; ok {
@@ -148,7 +146,11 @@ func main() {
 			}
 		}
 
-		return n.Reply(msg, map[string]any{"type": "broadcast_ok"})
+		var merged_body map[string]any = map[string]any{
+			"type": "broadcast_ok",
+		}
+
+		return n.Reply(msg, merged_body)
 	})
 
 	n.Handle("topology", func(msg maelstrom.Message) error {
@@ -156,7 +158,7 @@ func main() {
 		// if err := json.Unmarshal(msg.Body, &body); err != nil {
 		// 	return err
 		// }
-		topology_as_map := flatten_topology(n.NodeIDs(), n.ID())
+		topology_as_map := filter_self(n.NodeIDs(), n.ID())
 		var merged_body map[string]any = map[string]any{
 			"type": "topology_ok",
 		}
