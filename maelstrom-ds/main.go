@@ -116,7 +116,6 @@ func main() {
 			return n.Reply(msg, merged_body)
 		}
 
-		// Add the message to our storage
 		n.messages[message] = struct{}{}
 		return n.Reply(msg, body)
 	})
@@ -127,11 +126,8 @@ func main() {
 			return err
 		}
 
-		// Store the message locally
 		message := body["message"]
 		n.messages[message] = struct{}{}
-
-		// Get our topology
 		topology := filter_self(n.NodeIDs(), n.ID())
 
 		// Send to neighbors according to topology
@@ -154,10 +150,6 @@ func main() {
 	})
 
 	n.Handle("topology", func(msg maelstrom.Message) error {
-		// var body map[string]any
-		// if err := json.Unmarshal(msg.Body, &body); err != nil {
-		// 	return err
-		// }
 		topology_as_map := filter_self(n.NodeIDs(), n.ID())
 		var merged_body map[string]any = map[string]any{
 			"type": "topology_ok",
