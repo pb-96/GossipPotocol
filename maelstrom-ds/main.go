@@ -63,6 +63,16 @@ func (n *ExtendedNode) filter_self(topology []string) map[string][]string {
 	}
 }
 
+func (n *ExtendedNode) contains_slice(slice_em []string, elem string) bool {
+	for _, to_check := range slice_em {
+		if to_check == elem {
+			return true
+		}
+	}
+	return false
+
+}
+
 func (n *ExtendedNode) get_topology() map[string][]string {
 	/*
 		Just a placeholder for now
@@ -140,29 +150,53 @@ func main() {
 		if err := json.Unmarshal(msg.Body, &body); err != nil {
 			return err
 		}
-		// Check if we've already processed this message
+
 		message := body["message"]
 		if _, exists := n.messages[message]; exists {
-			// We've already seen this message, no need to process it again
-			var merged_body map[string]any = map[string]any{
-				"type": "echo",
-			}
-			return n.Reply(msg, merged_body)
+			return n.Reply(msg, map[string]any{"type": "echo"})
 		}
 		n.messages[message] = struct{}{}
 
 		topology := n.get_topology()
-		for _, neighbors := range topology {
-			for _, neighbor := range neighbors {
-				var msg map[string]any = map[string]any{
-					"type":    "consume",
-					"message": message,
-					"from":    n.ID(),
-				}
-				n.Send(neighbor, msg)
+		neighbors := topology[n.ID()]
+
+		rawFromNodes := body["from"].([]any)
+		fromSet := make(map[string]struct{}, len(rawFromNodes))
+		for _, node := range rawFromNodes {
+			fromSet[node.(string)] = struct{}{}
+		}
+
+		directFrom := body["direct_from"].(string)
+		toSend := []string{}
+
+		for _, neighbor := range neighbors {
+			if neighbor == directFrom {
+				continue
+			}
+			if _, seen := fromSet[neighbor]; !seen {
+				fromSet[neighbor] = struct{}{}
+				toSend = append(toSend, neighbor)
 			}
 		}
-		return n.Reply(msg, body)
+
+		updatedFrom := make([]string, 0, len(fromSet))
+		for node := range fromSet {
+			updatedFrom = append(updatedFrom, node)
+		}
+
+		for _, neighbor := range toSend {
+			forward := map[string]any{
+				"type":        "consume",
+				"message":     message,
+				"direct_from": n.ID(),
+				"from":        updatedFrom,
+			}
+			n.Send(neighbor, forward)
+		}
+
+		// Need to change this so it only sends echo message when the message has been sent twice
+
+		return n.Reply(msg, map[string]any{"type": "echo"})
 	})
 
 	n.Handle("broadcast", func(msg maelstrom.Message) error {
@@ -173,15 +207,18 @@ func main() {
 		message := body["message"]
 		n.messages[message] = struct{}{}
 		topology := n.filter_self(n.NodeIDs())
+		from_nodes := []string{n.ID()}
+		forward_msg := map[string]any{
+			"type":        "consume",
+			"message":     message,
+			"direct_from": n.ID(),
+			"from":        from_nodes,
+		}
 
 		// Send to neighbors according to topology
 		if neighbors, ok := topology[n.ID()]; ok {
 			for _, neighbor := range neighbors {
-				forward_msg := map[string]any{
-					"type":    "consume",
-					"message": message,
-					"from":    n.ID(),
-				}
+
 				n.Send(neighbor, forward_msg)
 			}
 		}
