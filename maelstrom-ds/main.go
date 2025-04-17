@@ -13,13 +13,15 @@ import (
 )
 
 // TODO: Make set class based of a hashmap
-
 type ExtendedNode struct {
-	*maelstrom.Node                                          // Embed the Maelstrom node
-	messages        map[interface{}]struct{}                 // Your local storage
-	known_messages  map[interface{}]map[interface{}]struct{} // Messages That we know the other nodes have -> Basically using the inner map as a set
-	// Messages that we have communicated with other nodes -> Also using the inner map as a set
-	// This will be used to help identify and errors or leaks when nodes sync
+	*maelstrom.Node
+	messages map[interface{}]struct{}
+	// Messages That we know the other nodes have -> Basically using the inner map as a set
+	known_messages map[interface{}]map[interface{}]struct{}
+	/*
+		Messages that we have communicated with other nodes -> Also using the inner map as a set
+		This will be used to help identify and errors or leaks when nodes sync
+	*/
 	msg_communicated map[interface{}]map[interface{}]struct{}
 }
 
@@ -30,7 +32,7 @@ func NewExtendedNode() *ExtendedNode {
 	}
 }
 
-func gen_uuid() string {
+func (n *ExtendedNode) gen_uuid() string {
 	// Generate UUID part
 	uuid := uuid.NewV4()
 	uuidStr := new(big.Int).SetBytes(uuid[:]).Text(62)
@@ -61,6 +63,42 @@ func (n *ExtendedNode) filter_self(topology []string) map[string][]string {
 	}
 }
 
+func (n *ExtendedNode) get_topology() map[string][]string {
+	/*
+		Just a placeholder for now
+		This needs to generate the actual tree and order
+		of what nodes can contact one another
+
+		so for example -> we get ["n0" "n1" "n2" "n3" "n4"]
+		we would return ->
+		{
+			"n0" ("n3" "n1"),
+			"n1" ("n4" "n2" "n0"),
+			"n2" ("n1"),
+			"n3" ("n0" "n4"),
+			"n4" ("n1" "n3")
+		},
+
+	*/
+
+	topology := n.NodeIDs()
+	var topology_map map[string][]string = map[string][]string{
+		// Need to actually build the tree from here
+		n.ID(): n.filter_self(topology)[n.ID()],
+	}
+	return topology_map
+}
+
+func (n *ExtendedNode) get_messages() []interface{} {
+	keys := make([]interface{}, len(n.messages))
+	i := 0
+	for key := range n.messages {
+		keys[i] = key
+		i++
+	}
+	return keys
+}
+
 func main() {
 	n := NewExtendedNode()
 	n.Handle("echo", func(msg maelstrom.Message) error {
@@ -77,8 +115,7 @@ func main() {
 		if err := json.Unmarshal(msg.Body, &body); err != nil {
 			return err
 		}
-
-		generated_id := gen_uuid()
+		generated_id := n.gen_uuid()
 		body["type"] = "generate_ok"
 		body["id"] = generated_id
 		return n.Reply(msg, body)
@@ -89,18 +126,8 @@ func main() {
 		if err := json.Unmarshal(msg.Body, &body); err != nil {
 			return err
 		}
-		// Create slice with exact size
-		keys := make([]interface{}, len(n.messages))
-
-		// Iterate with index
-		i := 0
-		for key := range n.messages {
-			keys[i] = key
-			i++
-		}
-
 		body["type"] = "read_ok"
-		body["messages"] = keys
+		body["messages"] = n.get_messages()
 		return n.Reply(msg, body)
 	})
 
@@ -109,7 +136,6 @@ func main() {
 		if err := json.Unmarshal(msg.Body, &body); err != nil {
 			return err
 		}
-
 		// Check if we've already processed this message
 		message := body["message"]
 		if _, exists := n.messages[message]; exists {
@@ -119,8 +145,19 @@ func main() {
 			}
 			return n.Reply(msg, merged_body)
 		}
-
 		n.messages[message] = struct{}{}
+
+		topology := n.get_topology()
+		for _, neighbors := range topology {
+			for _, neighbor := range neighbors {
+				var msg map[string]any = map[string]any{
+					"type":    "consume",
+					"message": message,
+					"from":    n.ID(),
+				}
+				n.Send(neighbor, msg)
+			}
+		}
 		return n.Reply(msg, body)
 	})
 
@@ -129,7 +166,6 @@ func main() {
 		if err := json.Unmarshal(msg.Body, &body); err != nil {
 			return err
 		}
-
 		message := body["message"]
 		n.messages[message] = struct{}{}
 		topology := n.filter_self(n.NodeIDs())
@@ -145,27 +181,22 @@ func main() {
 				n.Send(neighbor, forward_msg)
 			}
 		}
-
 		var merged_body map[string]any = map[string]any{
 			"type": "broadcast_ok",
 		}
-
 		return n.Reply(msg, merged_body)
 	})
 
 	n.Handle("topology", func(msg maelstrom.Message) error {
-		topology_as_map := n.filter_self(n.NodeIDs())
+		topology_as_map := n.get_topology()
 		var merged_body map[string]any = map[string]any{
 			"type": "topology_ok",
 		}
-
 		if len(topology_as_map) > 0 {
 			merged_body["topology"] = topology_as_map
 		}
-
 		return n.Reply(msg, merged_body)
 	})
-
 	if err := n.Run(); err != nil {
 		log.Printf("ERROR: %s", err)
 		os.Exit(1)
