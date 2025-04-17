@@ -64,22 +64,6 @@ func (n *ExtendedNode) filter_self(topology []string) map[string][]string {
 	}
 }
 
-func (n *ExtendedNode) contains_slice(slice_em []string, elem string) bool {
-	for _, to_check := range slice_em {
-		if to_check == elem {
-			return true
-		}
-	}
-	return false
-
-}
-
-func pop(slice_em []string, elem int) (string, []string) {
-	popped_value := slice_em[elem]
-	slice_em = append(slice_em[:elem], slice_em[elem+1:]...)
-	return popped_value, slice_em
-}
-
 func (n *ExtendedNode) get_topology() map[string][]string {
 	nodeIDs := n.NodeIDs()
 	numNodes := len(nodeIDs)
@@ -88,15 +72,13 @@ func (n *ExtendedNode) get_topology() map[string][]string {
 		topology[id] = []string{}
 	}
 
-	// Shuffle nodes
 	rand.Shuffle(numNodes, func(i, j int) {
 		nodeIDs[i], nodeIDs[j] = nodeIDs[j], nodeIDs[i]
 	})
 
-	// Create tree by connecting each node to a previous one
 	for i := 1; i < numNodes; i++ {
 		a := nodeIDs[i]
-		b := nodeIDs[rand.IntN(i)] // connect to a previous node to maintain tree-ness
+		b := nodeIDs[rand.IntN(i)]
 		topology[a] = append(topology[a], b)
 		topology[b] = append(topology[b], a)
 	}
