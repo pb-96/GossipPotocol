@@ -76,7 +76,7 @@ func (n *ExtendedNode) get_topology() map[string][]string {
 		nodeIDs[i], nodeIDs[j] = nodeIDs[j], nodeIDs[i]
 	})
 
-	for i := 1; i < numNodes; i++ {
+	for i := 0; i < numNodes; i++ {
 		a := nodeIDs[i]
 		b := nodeIDs[rand.IntN(i)]
 		topology[a] = append(topology[a], b)
