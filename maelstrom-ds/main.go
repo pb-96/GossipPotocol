@@ -66,6 +66,7 @@ func (n *ExtendedNode) filter_self(topology []string) map[string][]string {
 }
 
 func (n *ExtendedNode) get_topology() map[string][]string {
+	// Placeholder to generate a random tree
 	nodeIDs := n.NodeIDs()
 	numNodes := len(nodeIDs)
 	topology := make(map[string][]string, numNodes)
