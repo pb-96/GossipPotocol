@@ -79,6 +79,10 @@ func (n *ExtendedNode) get_topology() map[string][]string {
 			"n4" ("n1" "n3")
 		},
 
+		This would also need to filter out the from id every time
+		So we don't resend the same message to the same node twice
+		as sending it back would re trigger a loop
+
 	*/
 
 	topology := n.NodeIDs()
