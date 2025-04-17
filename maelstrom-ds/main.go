@@ -12,10 +12,15 @@ import (
 	uuid "github.com/satori/go.uuid"
 )
 
+// TODO: Make set class based of a hashmap
+
 type ExtendedNode struct {
-	*maelstrom.Node                          // Embed the Maelstrom node
-	messages        map[interface{}]struct{} // Your local storage
-	// Add any other fields you need
+	*maelstrom.Node                                          // Embed the Maelstrom node
+	messages        map[interface{}]struct{}                 // Your local storage
+	known_messages  map[interface{}]map[interface{}]struct{} // Messages That we know the other nodes have -> Basically using the inner map as a set
+	// Messages that we have communicated with other nodes -> Also using the inner map as a set
+	// This will be used to help identify and errors or leaks when nodes sync
+	msg_communicated map[interface{}]map[interface{}]struct{}
 }
 
 func NewExtendedNode() *ExtendedNode {
@@ -39,7 +44,6 @@ func gen_uuid() string {
 }
 
 func filter_self(topology []string, given_node string) map[string][]string {
-
 	seen := make(map[string][]string)
 	other_nodes := make([]string, 0)
 	for _, node := range topology {
