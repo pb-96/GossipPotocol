@@ -43,11 +43,11 @@ func gen_uuid() string {
 	return timeStr + ":" + uuidStr
 }
 
-func filter_self(topology []string, given_node string) map[string][]string {
+func (n *ExtendedNode) filter_self(topology []string) map[string][]string {
 	seen := make(map[string][]string)
 	other_nodes := make([]string, 0)
 	for _, node := range topology {
-		if node == given_node {
+		if node == n.ID() {
 			continue
 		} else {
 			other_nodes = append(other_nodes, node)
@@ -56,7 +56,7 @@ func filter_self(topology []string, given_node string) map[string][]string {
 	if len(other_nodes) == 0 {
 		return seen
 	} else {
-		seen[given_node] = other_nodes
+		seen[n.ID()] = other_nodes
 		return seen
 	}
 }
@@ -132,7 +132,7 @@ func main() {
 
 		message := body["message"]
 		n.messages[message] = struct{}{}
-		topology := filter_self(n.NodeIDs(), n.ID())
+		topology := n.filter_self(n.NodeIDs())
 
 		// Send to neighbors according to topology
 		if neighbors, ok := topology[n.ID()]; ok {
@@ -154,7 +154,7 @@ func main() {
 	})
 
 	n.Handle("topology", func(msg maelstrom.Message) error {
-		topology_as_map := filter_self(n.NodeIDs(), n.ID())
+		topology_as_map := n.filter_self(n.NodeIDs())
 		var merged_body map[string]any = map[string]any{
 			"type": "topology_ok",
 		}
