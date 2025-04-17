@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log"
 	"math/big"
+	"math/rand/v2"
 	"os"
 	"time"
 
@@ -73,34 +74,34 @@ func (n *ExtendedNode) contains_slice(slice_em []string, elem string) bool {
 
 }
 
+func pop(slice_em []string, elem int) (string, []string) {
+	popped_value := slice_em[elem]
+	slice_em = append(slice_em[:elem], slice_em[elem+1:]...)
+	return popped_value, slice_em
+}
+
 func (n *ExtendedNode) get_topology() map[string][]string {
-	/*
-		Just a placeholder for now
-		This needs to generate the actual tree and order
-		of what nodes can contact one another
-
-		so for example -> we get ["n0" "n1" "n2" "n3" "n4"]
-		we would return ->
-		{
-			"n0" ("n3" "n1"),
-			"n1" ("n4" "n2" "n0"),
-			"n2" ("n1"),
-			"n3" ("n0" "n4"),
-			"n4" ("n1" "n3")
-		},
-
-		This would also need to filter out the from id every time
-		So we don't resend the same message to the same node twice
-		as sending it back would re trigger a loop
-
-	*/
-
-	topology := n.NodeIDs()
-	var topology_map map[string][]string = map[string][]string{
-		// Need to actually build the tree from here
-		n.ID(): n.filter_self(topology)[n.ID()],
+	nodeIDs := n.NodeIDs()
+	numNodes := len(nodeIDs)
+	topology := make(map[string][]string, numNodes)
+	for _, id := range nodeIDs {
+		topology[id] = []string{}
 	}
-	return topology_map
+
+	// Shuffle nodes
+	rand.Shuffle(numNodes, func(i, j int) {
+		nodeIDs[i], nodeIDs[j] = nodeIDs[j], nodeIDs[i]
+	})
+
+	// Create tree by connecting each node to a previous one
+	for i := 1; i < numNodes; i++ {
+		a := nodeIDs[i]
+		b := nodeIDs[rand.IntN(i)] // connect to a previous node to maintain tree-ness
+		topology[a] = append(topology[a], b)
+		topology[b] = append(topology[b], a)
+	}
+
+	return topology
 }
 
 func (n *ExtendedNode) get_messages() []interface{} {
