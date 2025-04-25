@@ -12,13 +12,16 @@ import (
 	"github.com/emirpasic/gods/trees/btree"
 	maelstrom "github.com/jepsen-io/maelstrom/demo/go"
 	uuid "github.com/satori/go.uuid"
-	log "github.com/sirupsen/logrus"
+	logrus "github.com/sirupsen/logrus"
 )
 
-var logger *log.Logger
+var logger *logrus.Logger
 
 func initLogger() {
-	logger = log.New()
+	logger = logrus.New()
+	logger.SetFormatter(&logrus.TextFormatter{})
+	logger.SetOutput(os.Stdout)
+	logger.SetLevel(logrus.InfoLevel)
 	logFile, _ := os.OpenFile("./maelstrom.log", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0666)
 	logger.SetOutput(logFile)
 }
@@ -27,7 +30,6 @@ func initLogger() {
 type ExtendedNode struct {
 	*maelstrom.Node
 	// Here would represent the topology itself
-	tree     *btree.Tree
 	messages map[interface{}]struct{}
 	// Messages That we know the other nodes have -> Basically using the inner map as a set
 	known_messages map[interface{}]map[interface{}]struct{}
@@ -38,15 +40,34 @@ type ExtendedNode struct {
 	msg_communicated map[interface{}]map[interface{}]struct{}
 }
 
-type SeverNode struct {
+type ServerNode struct {
 	// Could represent the sever here
-	*ExtendedNode
+	n    *ExtendedNode
+	ids  map[int]struct{}
+	tree *btree.Tree
+	// These are all of the attributes we would need to make this a gossip protocol
+	// nodesMu      sync.RWMutex
+	// broadcastsMu sync.Mutex
+	// idsMu        sync.RWMutex
+	broadcasts map[string][]int
+	// kv           *maelstrom.KV
+	// mu           sync.Mutex
+	// cache        map[string]int
 }
 
 func NewExtendedNode() *ExtendedNode {
 	return &ExtendedNode{
 		Node:     maelstrom.NewNode(),
 		messages: make(map[interface{}]struct{}, 0), // Initialize your storage
+	}
+}
+
+func NewSeverNode() *ServerNode {
+	return &ServerNode{
+		n:          NewExtendedNode(),
+		ids:        make(map[int]struct{}, 0),
+		tree:       btree.NewWithIntComparator(2),
+		broadcasts: make(map[string][]int, 0),
 	}
 }
 
@@ -81,13 +102,13 @@ func (n *ExtendedNode) filter_self(topology []string) map[string][]string {
 	}
 }
 
-func (n *ExtendedNode) get_topology() *btree.Tree {
+func (s *ServerNode) get_topology() *btree.Tree {
 	// Placeholder to generate a random tree
-	tree := btree.NewWithIntComparator(len(n.NodeIDs()))
-	for i := 0; i < len(n.NodeIDs()); i++ {
+	tree := btree.NewWithIntComparator(len(s.n.NodeIDs()))
+	for i := 0; i < len(s.n.NodeIDs()); i++ {
 		tree.Put(i, fmt.Sprintf("n%d", i))
 	}
-	return *tree
+	return tree
 }
 
 func (n *ExtendedNode) get_messages() []interface{} {
@@ -100,60 +121,55 @@ func (n *ExtendedNode) get_messages() []interface{} {
 	return keys
 }
 
-func (n *ExtendedNode) topologyHandler(msg maelstrom.Message) error {
-	topology_as_map := n.get_topology()
+func (s *ServerNode) topologyHandler(msg maelstrom.Message) error {
 	var merged_body map[string]any = map[string]any{
 		"type": "topology_ok",
 	}
-	if len(topology_as_map) > 0 {
-		merged_body["topology"] = topology_as_map
-	}
-	return n.Reply(msg, merged_body)
+	return s.n.Reply(msg, merged_body)
 }
 
-func (n *ExtendedNode) broadCastHandler(msg maelstrom.Message) error {
+func (s *ServerNode) broadCastHandler(msg maelstrom.Message) error {
 	var body map[string]any
 	if err := json.Unmarshal(msg.Body, &body); err != nil {
 		return err
 	}
 	message := body["message"]
-	n.messages[message] = struct{}{}
-	topology := n.filter_self(n.NodeIDs())
-	from_nodes := []string{n.ID()}
+	s.n.messages[message] = struct{}{}
+	topology := s.n.filter_self(s.n.NodeIDs())
+	from_nodes := []string{s.n.ID()}
 	forward_msg := map[string]any{
 		"type":        "consume",
 		"message":     message,
-		"direct_from": n.ID(),
+		"direct_from": s.n.ID(),
 		"from":        from_nodes,
 	}
 
 	// Send to neighbors according to topology
-	if neighbors, ok := topology[n.ID()]; ok {
+	if neighbors, ok := topology[s.n.ID()]; ok {
 		for _, neighbor := range neighbors {
-
-			n.Send(neighbor, forward_msg)
+			s.n.Send(neighbor, forward_msg)
 		}
 	}
 	var merged_body map[string]any = map[string]any{
 		"type": "broadcast_ok",
 	}
-	return n.Reply(msg, merged_body)
+	return s.n.Reply(msg, merged_body)
 }
 
-func (n *ExtendedNode) handleConsume(msg maelstrom.Message) error {
+func (s *ServerNode) handleConsume(msg maelstrom.Message) error {
 	var body map[string]any
 	if err := json.Unmarshal(msg.Body, &body); err != nil {
 		return err
 	}
 
 	message := body["message"]
-	if _, exists := n.messages[message]; exists {
+	if _, exists := s.n.messages[message]; exists {
 		return nil
 	}
-	n.messages[message] = struct{}{}
+	s.n.messages[message] = struct{}{}
 
-	topology := n.get_topology()
-	neighbors := topology[n.ID()]
+	topology := s.get_topology()
+	neighbor, _ := topology.Get(s.n.ID())
 
 	rawFromNodes := body["from"].([]any)
 	fromSet := make(map[string]struct{}, len(rawFromNodes))
@@ -164,13 +180,13 @@ func (n *ExtendedNode) handleConsume(msg maelstrom.Message) error {
 	directFrom := body["direct_from"].(string)
 	toSend := []string{}
 
-	for _, neighbor := range neighbors {
-		if neighbor == directFrom {
-			continue
-		}
-		if _, seen := fromSet[neighbor]; !seen {
-			fromSet[neighbor] = struct{}{}
-			toSend = append(toSend, neighbor)
+	if neighborStr, ok := neighbor.(string); ok {
+		if _, seen := fromSet[neighborStr]; !seen || neighborStr != directFrom {
+			if neighborStr, ok := neighbor.(string); ok {
+				fromSet[neighborStr] = struct{}{}
+				toSend = append(toSend, neighborStr)
+			}
+			toSend = append(toSend, neighborStr)
 		}
 	}
 
@@ -183,57 +199,57 @@ func (n *ExtendedNode) handleConsume(msg maelstrom.Message) error {
 		forward := map[string]any{
 			"type":        "consume",
 			"message":     message,
-			"direct_from": n.ID(),
+			"direct_from": s.n.ID(),
 			"from":        updatedFrom,
 		}
-		n.Send(neighbor, forward)
+		s.n.Send(neighbor, forward)
 	}
 
 	return nil
 }
 
-func (n *ExtendedNode) handleRead(msg maelstrom.Message) error {
+func (s *ServerNode) handleRead(msg maelstrom.Message) error {
 	var body map[string]any
 	if err := json.Unmarshal(msg.Body, &body); err != nil {
 		return err
 	}
 	body["type"] = "read_ok"
-	body["messages"] = n.get_messages()
-	return n.Reply(msg, body)
+	body["messages"] = s.n.get_messages()
+	return s.n.Reply(msg, body)
 }
 
-func (n *ExtendedNode) handleGenerate(msg maelstrom.Message) error {
+func (s *ServerNode) handleGenerate(msg maelstrom.Message) error {
 	var body map[string]any
 	if err := json.Unmarshal(msg.Body, &body); err != nil {
 		return err
 	}
-	generated_id := n.gen_uuid()
+	generated_id := s.n.gen_uuid()
 	body["type"] = "generate_ok"
 	body["id"] = generated_id
-	return n.Reply(msg, body)
+	return s.n.Reply(msg, body)
 }
 
-func (n *ExtendedNode) handleEcho(msg maelstrom.Message) error {
+func (s *ServerNode) handleEcho(msg maelstrom.Message) error {
 	var body map[string]any
 	if err := json.Unmarshal(msg.Body, &body); err != nil {
 		return err
 	}
 	body["type"] = "echo_ok"
-	return n.Reply(msg, body)
+	return s.n.Reply(msg, body)
 }
 
 func main() {
-	n := NewExtendedNode()
+	s := NewSeverNode()
 	initLogger()
 
-	n.Handle("echo", n.handleEcho)
-	n.Handle("generate", n.handleGenerate)
-	n.Handle("read", n.handleRead)
-	n.Handle("consume", n.handleConsume)
-	n.Handle("broadcast", n.broadCastHandler)
-	n.Handle("topology", n.topologyHandler)
+	s.n.Node.Handle("echo", s.handleEcho)
+	s.n.Handle("generate", s.handleGenerate)
+	s.n.Handle("read", s.handleRead)
+	s.n.Handle("consume", s.handleConsume)
+	s.n.Handle("broadcast", s.broadCastHandler)
+	s.n.Handle("topology", s.topologyHandler)
 
-	if err := n.Run(); err != nil {
+	if err := s.n.Run(); err != nil {
 		log.Printf("ERROR: %s", err)
 		os.Exit(1)
 	}
