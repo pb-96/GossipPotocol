@@ -7,6 +7,7 @@ import (
 	"log"
 	"math/big"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/emirpasic/gods/trees/btree"
@@ -42,14 +43,14 @@ type ExtendedNode struct {
 
 type ServerNode struct {
 	// Could represent the sever here
-	n    *ExtendedNode
-	ids  map[int]struct{}
-	tree *btree.Tree
+	n          *ExtendedNode
+	ids        map[int]struct{}
+	tree       *btree.Tree
+	broadcasts map[string][]int
 	// These are all of the attributes we would need to make this a gossip protocol
-	// nodesMu      sync.RWMutex
+	nodesMu sync.RWMutex
 	// broadcastsMu sync.Mutex
 	// idsMu        sync.RWMutex
-	broadcasts map[string][]int
 	// kv           *maelstrom.KV
 	// mu           sync.Mutex
 	// cache        map[string]int
@@ -63,12 +64,14 @@ func NewExtendedNode() *ExtendedNode {
 }
 
 func NewSeverNode() *ServerNode {
-	return &ServerNode{
+	s := ServerNode{
 		n:          NewExtendedNode(),
 		ids:        make(map[int]struct{}, 0),
-		tree:       btree.NewWithIntComparator(2),
+		tree:       btree.NewWithIntComparator(0),
 		broadcasts: make(map[string][]int, 0),
 	}
+	s.get_topology()
+	return &s
 }
 
 func (n *ExtendedNode) gen_uuid() string {
@@ -108,6 +111,10 @@ func (s *ServerNode) get_topology() *btree.Tree {
 	for i := 0; i < len(s.n.NodeIDs()); i++ {
 		tree.Put(i, fmt.Sprintf("n%d", i))
 	}
+	// Maybe add a lock here ?
+	s.nodesMu.Lock()
+	s.tree = tree
+	s.nodesMu.Lock()
 	return tree
 }
 
@@ -168,7 +175,7 @@ func (s *ServerNode) handleConsume(msg maelstrom.Message) error {
 	}
 	s.n.messages[message] = struct{}{}
 
-	topology := s.get_topology()
+	topology := s.tree
 	neighbor, _ := topology.Get(s.n.ID())
 
 	rawFromNodes := body["from"].([]any)
