@@ -48,12 +48,12 @@ type ServerNode struct {
 	tree       *btree.Tree
 	broadcasts map[string][]int
 	// These are all of the attributes we would need to make this a gossip protocol
-	nodesMu sync.RWMutex
-	// broadcastsMu sync.Mutex
-	// idsMu        sync.RWMutex
-	// kv           *maelstrom.KV
-	// mu           sync.Mutex
-	// cache        map[string]int
+	nodesMu      sync.RWMutex
+	broadcastsMu sync.Mutex
+	idsMu        sync.RWMutex
+	kv           *maelstrom.KV
+	mu           sync.Mutex
+	cache        map[string]int
 }
 
 func NewExtendedNode() *ExtendedNode {
