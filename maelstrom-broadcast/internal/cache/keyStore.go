@@ -41,3 +41,14 @@ func (kv *KVStore) Get(key int) []int {
 
 	return keys
 }
+
+func (kv *KVStore) SetAll(vals []int) error {
+	kv.mu.Lock()
+	defer kv.mu.Unlock()
+
+	for _, val := range vals {
+		kv.Set(val)
+	}
+
+	return nil
+}
