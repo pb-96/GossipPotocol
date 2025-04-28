@@ -1,7 +1,6 @@
 package main
 
 import (
-	"broadcast/internal/node"
 	"encoding/json"
 	"maelstrom-broadcast/internal/node"
 	gossip "maelstrom-broadcast/internal/p2pGossip"
@@ -21,17 +20,18 @@ type GossipMsgs struct {
 }
 
 func main() {
-	node := &node.NewNode()
+	node := node.NewNode()
 	gossip := gossip.NewGossip(100 * time.Millisecond)
 
-	node.Node.handle("broadcast", func(msg maelstrom.Message) error {
+	node.N.Handle("broadcast", func(msg maelstrom.Message) error {
 		var body map[string]any
 		if err := json.Unmarshal(msg.Body, &body); err != nil {
 			return err
 		}
 
 		m := body["message"]
-		node.Store.Set(m)
+		v := int(m.(float64))
+		node.Store.Set(v)
 		gossip.Start(node)
 
 		return node.N.Reply(msg, map[string]interface{}{
@@ -39,7 +39,7 @@ func main() {
 		})
 	})
 
-	node.Node.handle("gossip", func(msg maelstrom.Message) error {
+	node.N.Handle("gossip", func(msg maelstrom.Message) error {
 		var body GossipMsgs
 		if err := json.Unmarshal(msg.Body, &body); err != nil {
 			return err
@@ -47,10 +47,10 @@ func main() {
 
 		// Set all here
 		node.Store.SetAll(body.Msgs)
-		return node.N.Reply(body)
+		return node.N.Reply(msg, body)
 	})
 
-	node.Node.handle("topology", func(msg maelstrom.Message) error {
+	node.N.Handle("topology", func(msg maelstrom.Message) error {
 		var body NWTopology
 
 		if err := json.Unmarshal(msg.Body, &body); err != nil {
