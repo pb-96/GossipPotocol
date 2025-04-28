@@ -1,0 +1,43 @@
+package cache
+
+import (
+	"errors"
+	"sync"
+)
+
+type KVStore struct {
+	store map[int]struct{}
+	mu    sync.Mutex
+}
+
+func NewCache() *KVStore {
+	return &KVStore{
+		store: make(map[int]struct{}),
+	}
+}
+
+func (kv *KVStore) Set(key int) error {
+	kv.mu.Lock()
+	defer kv.mu.Unlock()
+
+	if _, exists := kv.store[key]; exists {
+		return errors.New("specified key already exists in the cache")
+	}
+
+	kv.store[key] = struct{}{}
+	return nil
+}
+
+func (kv *KVStore) Get(key int) []int {
+
+	kv.mu.Lock()
+	defer kv.mu.Unlock()
+
+	var keys []int
+
+	for k := range kv.store {
+		keys = append(keys, k)
+	}
+
+	return keys
+}
