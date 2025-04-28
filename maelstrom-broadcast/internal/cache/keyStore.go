@@ -28,7 +28,7 @@ func (kv *KVStore) Set(key int) error {
 	return nil
 }
 
-func (kv *KVStore) Get(key int) []int {
+func (kv *KVStore) GetAll() []int {
 
 	kv.mu.Lock()
 	defer kv.mu.Unlock()
